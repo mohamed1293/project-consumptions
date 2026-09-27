@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>متابعة استهلاكات مشاريع حفر الآبار</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+
+<!-- Firebase (Authentication + Firestore database) -->
+<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore-compat.js"></script>
+<!-- SheetJS (Excel export) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<style>
+  :root {
+    --bg: #F5F1E7; --surface: #FFFFFF; --surface-2: #FBF7ED; --ink: #22201B; --ink-soft: #6B6255;
+    --border: #E2D9C4; --accent: #B5541C; --accent-ink: #FFFFFF; --good: #2E6B4F; --danger: #A23B3B;
+    --shadow: 0 1px 2px rgba(34,32,27,.06), 0 4px 14px rgba(34,32,27,.05); --radius: 10px;
+    --c-summary: #274B63; --c-wellsum: #1F6E5A; --c-master: #2E6B4F; --c-diesel: #B5541C;
+    --c-cement: #8A6A1D; --c-mud: #6B4FA0; --c-store: #A23B3B;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #16140F; --surface: #1E1B15; --surface-2: #241F18; --ink: #EFE9DB; --ink-soft: #A79C88;
+      --border: #37301F; --accent: #DE8A48; --accent-ink: #16140F;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 18px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #16140F; --surface: #1E1B15; --surface-2: #241F18; --ink: #EFE9DB; --ink-soft: #A79C88;
+    --border: #37301F; --accent: #DE8A48; --accent-ink: #16140F;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 18px rgba(0,0,0,.35);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: 'IBM Plex Sans Arabic', Tahoma, Arial, sans-serif;
+    padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px);
+    -webkit-font-smoothing: antialiased;
+  }
+  .mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+
+  /* ---------- login ---------- */
+  #loginScreen {
+    min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  .login-card {
+    width: 100%; max-width: 360px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); box-shadow: var(--shadow); padding: 28px 26px;
+  }
+  .login-card h1 { font-size: 17px; margin: 0 0 4px; }
+  .login-card p.sub { margin: 0 0 20px; font-size: 12.5px; color: var(--ink-soft); }
+  .login-card .field { margin-bottom: 12px; }
+  .login-card label { display: block; font-size: 12px; color: var(--ink-soft); font-weight: 600; margin-bottom: 5px; }
+  .login-card input {
+    width: 100%; font-family: inherit; font-size: 14px; padding: 10px 11px;
+    border: 1px solid var(--border); border-radius: 7px; background: var(--surface-2); color: var(--ink);
+  }
+  .login-card button {
+    width: 100%; margin-top: 6px; appearance: none; border: none; cursor: pointer; font-family: inherit;
+    background: var(--accent); color: var(--accent-ink); font-weight: 700; font-size: 14px; padding: 11px; border-radius: 7px;
+  }
+  .login-card button:disabled { opacity: .6; cursor: not-allowed; }
+  .login-err { color: var(--danger); font-size: 12.5px; margin-top: 10px; min-height: 16px; }
+  .config-warning {
+    background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+    border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border)); color: var(--danger);
+    padding: 12px 14px; border-radius: 8px; font-size: 12.5px; line-height: 1.7; margin-bottom: 16px;
+  }
+  #app { display: none; }
+
+  header.top { position: sticky; top: 0; z-index: 30; padding-top: env(safe-area-inset-top, 0px); background: var(--surface); border-bottom: 1px solid var(--border); }
+  .top-inner { max-width: 1180px; margin: 0 auto; padding: 14px 18px 10px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .brand { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-width: 220px; }
+  .brand h1 { font-size: 17px; margin: 0; font-weight: 700; }
+  .brand p { margin: 0; font-size: 12.5px; color: var(--ink-soft); }
+  .who-pill { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; padding: 6px 6px 6px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-2); }
+  .who-pill button { appearance: none; border: none; background: var(--border); color: var(--ink); font-family: inherit; font-size: 11.5px; padding: 4px 9px; border-radius: 999px; cursor: pointer; }
+
+  nav.tabs { max-width: 1180px; margin: 0 auto; padding: 0 18px; display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+  nav.tabs::-webkit-scrollbar { display: none; }
+  nav.tabs button { appearance: none; border: none; background: transparent; color: var(--ink-soft); font-family: inherit; font-size: 13.5px; font-weight: 600; padding: 10px 12px; cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; }
+  nav.tabs button.active { color: var(--ink); border-bottom-color: var(--accent); }
+
+  main { max-width: 1180px; margin: 0 auto; padding: 22px 18px 60px; }
+  section.panel { display: none; }
+  section.panel.active { display: block; }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 20px; overflow: hidden; }
+  .card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 13px 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .card-head h2 { font-size: 14.5px; margin: 0; font-weight: 700; }
+  .badge { display: inline-block; font-size: 11.5px; font-weight: 700; color: #fff; padding: 3px 9px; border-radius: 999px; }
+  .card-body { padding: 16px; }
+
+  form.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px 14px; align-items: end; }
+  .field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+  .field label { font-size: 12px; color: var(--ink-soft); font-weight: 600; }
+  .field input, .field select { font-family: inherit; font-size: 13.5px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface-2); color: var(--ink); width: 100%; }
+  .field input:focus, .field select:focus { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 1px; }
+  .field input[readonly] { color: var(--ink-soft); background: color-mix(in srgb, var(--border) 40%, var(--surface-2)); }
+  .field.wide { grid-column: 1 / -1; }
+  .submit-row { grid-column: 1 / -1; display: flex; justify-content: flex-start; margin-top: 2px; }
+  button.primary { appearance: none; border: none; cursor: pointer; font-family: inherit; background: var(--accent); color: var(--accent-ink); font-weight: 700; font-size: 13.5px; padding: 9px 18px; border-radius: 7px; }
+  button.primary:disabled { opacity: .5; cursor: not-allowed; }
+  button.ghost { appearance: none; border: 1px solid var(--border); background: transparent; color: var(--ink-soft); font-family: inherit; font-size: 12px; padding: 5px 10px; border-radius: 7px; cursor: pointer; }
+  button.ghost:hover { color: var(--danger); border-color: var(--danger); }
+  button.export { appearance: none; border: 1px solid var(--accent); background: transparent; color: var(--accent); font-family: inherit; font-weight: 700; font-size: 13px; padding: 8px 14px; border-radius: 7px; cursor: pointer; }
+
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 560px; }
+  thead th { text-align: right; font-size: 11.5px; color: var(--ink-soft); font-weight: 700; padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  tbody td { padding: 9px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: var(--surface-2); }
+  .num { font-family: 'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums; }
+  .empty-row td { color: var(--ink-soft); text-align: center; padding: 22px 10px; white-space: normal; }
+  .muted { color: var(--ink-soft); }
+  .who { font-size: 11.5px; color: var(--ink-soft); }
+
+  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap: 12px; margin-bottom: 18px; }
+  .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow); }
+  .kpi .v { font-size: 22px; font-weight: 700; font-family: 'IBM Plex Mono', monospace; }
+  .kpi .l { font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
+
+  .instructions .item { display: grid; grid-template-columns: 190px 1fr; gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+  .instructions .item:last-child { border-bottom: none; }
+  .instructions dt { font-weight: 700; font-size: 13px; }
+  .instructions dd { margin: 0; font-size: 13.5px; color: var(--ink-soft); line-height: 1.65; }
+  .instructions pre { direction: ltr; text-align: left; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; font-size: 12px; overflow-x: auto; }
+  @media (max-width: 620px) { .instructions .item { grid-template-columns: 1fr; gap: 4px; } }
+
+  .banner { display: none; align-items: center; gap: 10px; background: color-mix(in srgb, var(--danger) 12%, var(--surface)); border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border)); color: var(--danger); padding: 10px 14px; border-radius: var(--radius); font-size: 13px; margin-bottom: 16px; }
+  .banner.show { display: flex; }
+  .status-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-2); color: var(--ink-soft); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--good); box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 25%, transparent); }
+</style>
+</head>
+<body>
+
+<!-- ===================== CONFIG WARNING (shows until firebaseConfig is filled) ===================== -->
+<div id="loginScreen">
+  <div class="login-card">
+    <h1>متابعة استهلاكات مشاريع حفر الآبار</h1>
+    <p class="sub">سجّل الدخول ببريدك وكلمة المرور اللي اتعملت لك</p>
+    <div id="configWarning" class="config-warning" style="display:none;">
+      ⚠️ الإعدادات لسه ما اتعبتش. افتح كود الصفحة وابحث عن <span class="mono">firebaseConfig</span> واملأ بيانات مشروعك في Firebase — التفاصيل في تبويب (تعليمات) بعد أول تسجيل دخول تجريبي، أو راجع ملف التعليمات المرفق.
+    </div>
+    <form id="loginForm">
+      <div class="field"><label>البريد الإلكتروني</label><input required type="email" id="loginEmail" autocomplete="username"></div>
+      <div class="field"><label>كلمة المرور</label><input required type="password" id="loginPassword" autocomplete="current-password"></div>
+      <button class="primary" type="submit" id="loginBtn">دخول</button>
+      <div class="login-err" id="loginErr"></div>
+    </form>
+  </div>
+</div>
+
+<div id="app">
+<header class="top">
+  <div class="top-inner">
+    <div class="brand">
+      <h1>متابعة استهلاكات مشاريع حفر الآبار</h1>
+      <p>كل قسم يدخل بياناته هنا مباشرة — تحديث لحظي بين الجميع</p>
+    </div>
+    <span class="status-pill"><span class="dot"></span>متصل</span>
+    <div class="who-pill"><span id="whoEmail" class="mono"></span><button id="logoutBtn">خروج</button></div>
+  </div>
+  <nav class="tabs" id="tabs">
+    <button data-tab="dashboard" class="active">لوحة الملخص</button>
+    <button data-tab="ops">العمليات</button>
+    <button data-tab="diesel">السولار</button>
+    <button data-tab="cement">الأسمنت</button>
+    <button data-tab="mud">الطفلة والكيماويات</button>
+    <button data-tab="store">المواسير والدقاقات</button>
+    <button data-tab="help">تعليمات</button>
+  </nav>
+</header>
+
+<main>
+  <div id="errBanner" class="banner"></div>
+
+  <!-- ===================== DASHBOARD ===================== -->
+  <section class="panel active" id="panel-dashboard">
+    <div class="card-head" style="border:none;padding:0 0 14px;">
+      <h2 style="font-size:16px;">لوحة الملخص</h2>
+      <button class="export" id="exportBtn">⬇️ تصدير كل البيانات إلى Excel</button>
+    </div>
+    <div class="kpi-grid" id="kpiGrid"></div>
+
+    <div class="card">
+      <div class="card-head"><h2>ملخص العمليات <span class="muted" style="font-weight:500;">— أمام كل مشروع</span></h2><span class="badge" style="background:var(--c-summary)">إجمالي</span></div>
+      <div class="card-body table-wrap">
+        <table id="tblProjSummary">
+          <thead><tr><th>كود المشروع</th><th>العميل</th><th>آبار مطلوبة</th><th>آبار مسجلة</th><th>سولار (لتر)</th><th>أسمنت (طن)</th><th>طفلة وكيماويات</th><th>مواسير ودقاقات</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>ملخص الآبار <span class="muted" style="font-weight:500;">— أمام كل بئر</span></h2><span class="badge" style="background:var(--c-wellsum)">إجمالي</span></div>
+      <div class="card-body table-wrap">
+        <table id="tblWellSummary">
+          <thead><tr><th>اسم البئر</th><th>كود المشروع</th><th>بداية الحفر</th><th>نهاية الحفر</th><th>الحالة</th><th>سولار (لتر)</th><th>أسمنت (طن)</th><th>طفلة وكيماويات</th><th>مواسير ودقاقات</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== OPERATIONS ===================== -->
+  <section class="panel" id="panel-ops">
+    <div class="card">
+      <div class="card-head"><h2>بيانات المشاريع</h2><span class="badge" style="background:var(--c-master)">قسم العمليات</span></div>
+      <div class="card-body">
+        <form class="grid" id="formProject">
+          <div class="field"><label>كود المشروع</label><input required name="code" placeholder="PRJ-001"></div>
+          <div class="field"><label>اسم العميل</label><input required name="client" placeholder="شركة..."></div>
+          <div class="field"><label>عدد الآبار المطلوبة</label><input required name="wellsCount" type="number" min="1"></div>
+          <div class="field"><label>تاريخ بداية المشروع</label><input required name="startDate" type="date"></div>
+          <div class="field"><label>تاريخ نهاية المشروع (متوقعة)</label><input name="endDate" type="date"></div>
+          <div class="field wide"><label>ملاحظات</label><input name="notes" placeholder="اختياري"></div>
+          <div class="submit-row"><button class="primary" type="submit">إضافة المشروع</button></div>
+        </form>
+      </div>
+      <div class="table-wrap">
+        <table id="tblProjects"><thead><tr><th>كود المشروع</th><th>العميل</th><th>آبار مطلوبة</th><th>بداية</th><th>نهاية</th><th>ملاحظات</th><th>المدخل</th><th></th></tr></thead><tbody></tbody></table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>الآبار</h2><span class="badge" style="background:var(--c-master)">قسم العمليات</span></div>
+      <div class="card-body">
+        <form class="grid" id="formWell">
+          <div class="field"><label>كود المشروع</label><select required name="code" id="wellProjectSelect"></select></div>
+          <div class="field"><label>اسم البئر (فريد)</label><input required name="wellName" placeholder="PRJ-001-بئر1"></div>
+          <div class="field"><label>تاريخ بداية الحفر</label><input required name="startDate" type="date"></div>
+          <div class="field"><label>تاريخ نهاية الحفر</label><input name="endDate" type="date"></div>
+          <div class="field"><label>الحالة</label><select name="status"><option value="جاري">جاري</option><option value="منتهي">منتهي</option><option value="متوقف">متوقف</option></select></div>
+          <div class="field wide"><label>ملاحظات</label><input name="notes" placeholder="اختياري"></div>
+          <div class="submit-row"><button class="primary" type="submit">إضافة البئر</button></div>
+        </form>
+      </div>
+      <div class="table-wrap">
+        <table id="tblWells"><thead><tr><th>كود المشروع</th><th>اسم البئر</th><th>بداية الحفر</th><th>نهاية الحفر</th><th>الحالة</th><th>ملاحظات</th><th>المدخل</th><th></th></tr></thead><tbody></tbody></table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== DEPT SHEETS ===================== -->
+  <section class="panel" id="panel-diesel">
+    <div class="card">
+      <div class="card-head"><h2>السولار</h2><span class="badge" style="background:var(--c-diesel)">إدارة الأصول</span></div>
+      <div class="card-body">
+        <form class="grid dept-form" id="formDiesel" data-coll="diesel">
+          <div class="field"><label>التاريخ</label><input required name="date" type="date"></div>
+          <div class="field"><label>اسم البئر</label><select required name="wellId" class="well-select"></select></div>
+          <div class="field"><label>كود المشروع</label><input readonly class="auto-code"></div>
+          <div class="field"><label>بداية الحفر</label><input readonly class="auto-start"></div>
+          <div class="field"><label>نهاية الحفر</label><input readonly class="auto-end"></div>
+          <div class="field"><label>الكمية (لتر)</label><input required name="qty" type="number" step="any" min="0"></div>
+          <div class="field wide"><label>ملاحظات</label><input name="notes" placeholder="اختياري"></div>
+          <div class="submit-row"><button class="primary" type="submit">إضافة</button></div>
+        </form>
+      </div>
+      <div class="table-wrap"><table id="tblDiesel"><thead><tr><th>التاريخ</th><th>اسم البئر</th><th>كود المشروع</th><th>الكمية (لتر)</th><th>ملاحظات</th><th>المدخل</th><th></th></tr></thead><tbody></tbody></table></div>
+    </div>
+  </section>
+
+  <section class="panel" id="panel-cement">
+    <div class="card">
+      <div class="card-head"><h2>الأسمنت</h2><span class="badge" style="background:var(--c-cement)">إدارة الأسمنت</span></div>
+      <div class="card-body">
+        <form class="grid dept-form" id="formCement" data-coll="cement">
+          <div class="field"><label>التاريخ</label><input required name="date" type="date"></div>
+          <div class="field"><label>اسم البئر</label><select required name="wellId" class="well-select"></select></div>
+          <div class="field"><label>كود المشروع</label><input readonly class="auto-code"></div>
+          <div class="field"><label>بداية الحفر</label><input readonly class="auto-start"></div>
+          <div class="field"><label>نهاية الحفر</label><input readonly class="auto-end"></div>
+          <div class="field"><label>الكمية (طن)</label><input required name="qty" type="number" step="any" min="0"></div>
+          <div class="field wide"><label>ملاحظات</label><input name="notes" placeholder="اختياري"></div>
+          <div class="submit-row"><button class="primary" type="submit">إضافة</button></div>
+        </form>
+      </div>
+      <div class="table-wrap"><table id="tblCement"><thead><tr><th>التاريخ</th><th>اسم البئر</th><th>كود المشروع</th><th>الكمية (طن)</th><th>ملاحظات</th><th>المدخل</th><th></th></tr></thead><tbody></tbody></table></div>
+    </div>
+  </section>
+
+  <section class="panel" id="panel-mud">
+    <div class="card">
+      <div class="card-head"><h2>الطفلة والكيماويات</h2><span class="badge" style="background:var(--c-mud)">إدارة الطفلة والكيماويات</span></div>
+      <div class="card-body">
+        <form class="grid dept-form" id="formMud" data-coll="mud">
+          <div class="field"><label>التاريخ</label><input required name="date" type="date"></div>
+          <div class="field"><label>اسم البئر</label><select required name="wellId" class="well-select"></select></div>
+          <div class="field"><label>كود المشروع</label><input readonly class="auto-code"></div>
+          <div class="field"><label>بداية الحفر</label><input readonly class="auto-start"></div>
+          <div class="field"><label>نهاية الحفر</label><input readonly class="auto-end"></div>
+          <div class="field"><label>نوع الصنف</label><select required name="itemType"><option value="طفلة">طفلة</option><option value="كيماوي">كيماوي</option></select></div>
+          <div class="field"><label>الكمية</label><input required name="qty" type="number" step="any" min="0"></div>
+          <div class="field"><label>الوحدة</label><input required name="unit" placeholder="طن / لتر..."></div>
+          <div class="field wide"><label>ملاحظات</label><input name="notes" placeholder="اختياري"></div>
+          <div class="submit-row"><button class="primary" type="submit">إضافة</button></div>
+        </form>
+      </div>
+      <div class="table-wrap"><table id="tblMud"><thead><tr><th>التاريخ</th><th>اسم البئر</th><th>كود المشروع</th><th>نوع الصنف</th><th>الكمية</th><th>الوحدة</th><th>ملاحظات</th><th>المدخل</th><th></th></tr></thead><tbody></tbody></table></div>
+    </div>
+  </section>
+
+  <section class="panel" id="panel-store">
+    <div class="card">
+      <div class="card-head"><h2>المواسير والدقاقات</h2><span class="badge" style="background:var(--c-store)">المخازن / العمليات</span></div>
+      <div class="card-body">
+        <form class="grid dept-form" id="formStore" data-coll="store">
+          <div class="field"><label>التاريخ</label><input required name="date" type="date"></div>
+          <div class="field"><label>اسم البئر</label><select required name="wellId" class="well-select"></select></div>
+          <div class="field"><label>كود المشروع</label><input readonly class="auto-code"></div>
+          <div class="field"><label>بداية الحفر</label><input readonly class="auto-start"></div>
+          <div class="field"><label>نهاية الحفر</label><input readonly class="auto-end"></div>
+          <div class="field"><label>نوع الصنف</label><select required name="itemType"><option value="ماسورة">ماسورة</option><option value="دقاقة">دقاقة</option><option value="أخرى">أخرى</option></select></div>
+          <div class="field"><label>الكمية</label><input required name="qty" type="number" step="any" min="0"></div>
+          <div class="field"><label>الوحدة</label><input required name="unit" placeholder="عدد / طن..."></div>
+          <div class="field wide"><label>ملاحظات</label><input name="notes" placeholder="اختياري"></div>
+          <div class="submit-row"><button class="primary" type="submit">إضافة</button></div>
+        </form>
+      </div>
+      <div class="table-wrap"><table id="tblStore"><thead><tr><th>التاريخ</th><th>اسم البئر</th><th>كود المشروع</th><th>نوع الصنف</th><th>الكمية</th><th>الوحدة</th><th>ملاحظات</th><th>المدخل</th><th></th></tr></thead><tbody></tbody></table></div>
+    </div>
+  </section>
+
+  <!-- ===================== HELP ===================== -->
+  <section class="panel instructions" id="panel-help">
+    <div class="card">
+      <div class="card-head"><h2>إعداد الصفحة أول مرة (مرة واحدة فقط)</h2></div>
+      <div class="card-body">
+        <dl>
+          <div class="item"><dt>1. إنشاء مشروع Firebase</dt><dd>ادخل على console.firebase.google.com بحساب Google، وأنشئ مشروع جديد (مجاني بالكامل للاستخدام ده).</dd></div>
+          <div class="item"><dt>2. تفعيل تسجيل الدخول</dt><dd>من القائمة الجانبية: Build → Authentication → Get started → فعّل طريقة "Email/Password".</dd></div>
+          <div class="item"><dt>3. إنشاء قاعدة البيانات</dt><dd>من القائمة الجانبية: Build → Firestore Database → Create database (اختر أي منطقة قريبة).</dd></div>
+          <div class="item"><dt>4. قواعد الحماية (Rules)</dt><dd>في تبويب Rules داخل Firestore، الصق الكود ده واضغط Publish:
+            <pre class="mono">rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}</pre></dd></div>
+          <div class="item"><dt>5. إضافة مستخدمين (يوزر/باسورد لكل شخص)</dt><dd>من Authentication → Users → Add user، أضف بريد وكلمة مرور لكل شخص في كل قسم. كل واحد هيدخل بالبيانات دي في شاشة الدخول.</dd></div>
+          <div class="item"><dt>6. ربط الصفحة بالمشروع</dt><dd>من ⚙️ Project settings → أسفل الصفحة "Your apps" → أضف تطبيق ويب (</> ) وسمّه أي اسم. انسخ الكائن firebaseConfig الظاهر، وافتح ملف الصفحة بمحرر نصوص، وابحث عن firebaseConfig في أول السكريبت واستبدله بالكائن اللي نسخته.</dd></div>
+          <div class="item"><dt>7. الاستضافة والمشاركة</dt><dd>ارفع ملف الصفحة (HTML) على أي استضافة ثابتة مجانية زي Firebase Hosting أو Netlify أو GitHub Pages، أو حتى شغّله من جهازك محليًا. بعد كده ابعت اللينك لكل الأقسام، وكل واحد يدخل ببريده وكلمة السر بتاعته.</dd></div>
+          <div class="item"><dt>تصدير البيانات</dt><dd>من تبويب (لوحة الملخص) في أي وقت اضغط "تصدير كل البيانات إلى Excel" لتحميل ملف xlsx فيه كل الشيتات والملخصات لحظيًا.</dd></div>
+        </dl>
+      </div>
+    </div>
+  </section>
+</main>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ======================================================================
+  // 1) فعّل بياناتك هنا بعد إنشاء مشروع Firebase (راجع تبويب "تعليمات")
+  // ======================================================================
+  const firebaseConfig = {
+  apiKey: "AIzaSyCKmvM6uSA32wUo2xqNqWUoi1RbVYNZ34M",
+  authDomain: "project-consumptions.firebaseapp.com",
+  projectId: "project-consumptions",
+  storageBucket: "project-consumptions.firebasestorage.app",
+  messagingSenderId: "957436468477",
+  appId: "1:957436468477:web:ec20ec22ef9f782fce7294",
+  measurementId: "G-H1415XHZ95"
+  };
+  // ======================================================================
+
+  const configReady = firebaseConfig.apiKey && firebaseConfig.apiKey.indexOf("PASTE_") !== 0;
+
+  const $ = (sel, root) => (root || document).querySelector(sel);
+  const $all = (sel, root) => Array.from((root || document).querySelectorAll(sel));
+
+  function escapeHtml(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+  function fmtNum(n) {
+    if (n === "" || n === null || n === undefined || isNaN(n)) return "0";
+    return Number(n).toLocaleString("ar-EG", { maximumFractionDigits: 2 });
+  }
+  function todayISO() { return new Date().toISOString().slice(0, 10); }
+
+  if (!configReady) {
+    $("#configWarning").style.display = "block";
+    $("#loginBtn").disabled = true;
+  }
+
+  let auth = null, dbRef = null;
+  if (configReady) {
+    firebase.initializeApp(firebaseConfig);
+    auth = firebase.auth();
+    dbRef = firebase.firestore();
+  }
+
+  // ---------------- login ----------------
+  $("#loginForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!auth) return;
+    const email = $("#loginEmail").value.trim();
+    const password = $("#loginPassword").value;
+    const btn = $("#loginBtn");
+    const err = $("#loginErr");
+    err.textContent = "";
+    btn.disabled = true;
+    try {
+      await auth.signInWithEmailAndPassword(email, password);
+    } catch (ex) {
+      err.textContent = "بيانات الدخول غير صحيحة، أو الحساب غير موجود.";
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  $("#logoutBtn").addEventListener("click", () => { if (auth) auth.signOut(); });
+
+  if (auth) {
+    auth.onAuthStateChanged((user) => {
+      if (user) {
+        $("#loginScreen").style.display = "none";
+        $("#app").style.display = "block";
+        $("#whoEmail").textContent = user.email || "";
+        startApp();
+      } else {
+        $("#loginScreen").style.display = "flex";
+        $("#app").style.display = "none";
+      }
+    });
+  }
+
+  // ---------------- app state ----------------
+  const state = { projects: [], wells: [], diesel: [], cement: [], mud: [], store: [] };
+  let appStarted = false;
+
+  function startApp() {
+    if (appStarted) return;
+    appStarted = true;
+
+    $all("nav.tabs button").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        $all("nav.tabs button").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        $all("section.panel").forEach((p) => p.classList.remove("active"));
+        $("#panel-" + btn.dataset.tab).classList.add("active");
+      });
+    });
+
+    subscribe("projects", (docs) => { state.projects = docs; renderAll(); });
+    subscribe("wells", (docs) => { state.wells = docs; renderAll(); });
+    subscribe("diesel", (docs) => { state.diesel = docs; renderAll(); });
+    subscribe("cement", (docs) => { state.cement = docs; renderAll(); });
+    subscribe("mud", (docs) => { state.mud = docs; renderAll(); });
+    subscribe("store", (docs) => { state.store = docs; renderAll(); });
+
+    $("#formProject").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const f = e.target;
+      const data = {
+        code: f.code.value.trim(), client: f.client.value.trim(), wellsCount: Number(f.wellsCount.value || 0),
+        startDate: f.startDate.value, endDate: f.endDate.value || "", notes: f.notes.value.trim(),
+      };
+      if (!data.code) return;
+      addRecord("projects", data, f);
+    });
+
+    $("#formWell").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const f = e.target;
+      const data = {
+        code: f.code.value, wellName: f.wellName.value.trim(), startDate: f.startDate.value,
+        endDate: f.endDate.value || "", status: f.status.value, notes: f.notes.value.trim(),
+      };
+      if (!data.code || !data.wellName) return;
+      addRecord("wells", data, f);
+    });
+
+    const deptConfigs = [
+      { formId: "formDiesel", coll: "diesel", extra: false },
+      { formId: "formCement", coll: "cement", extra: false },
+      { formId: "formMud", coll: "mud", extra: true },
+      { formId: "formStore", coll: "store", extra: true },
+    ];
+    deptConfigs.forEach((cfg) => {
+      const form = $("#" + cfg.formId);
+      const wellSelect = form.querySelector(".well-select");
+      wellSelect.addEventListener("change", () => applyWellLookup(form, wellSelect.value));
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const f = e.target;
+        const well = state.wells.find((w) => w.id === f.wellId.value);
+        if (!well) { showError("اختر اسم البئر أولاً"); return; }
+        const data = { date: f.date.value, wellId: well.id, wellName: well.wellName, code: well.code, qty: Number(f.qty.value || 0), notes: (f.notes.value || "").trim() };
+        if (cfg.extra) { data.itemType = f.itemType.value; data.unit = (f.unit.value || "").trim(); }
+        addRecord(cfg.coll, data, f);
+      });
+      const dateInput = form.querySelector('input[name="date"]');
+      if (dateInput) dateInput.value = todayISO();
+    });
+
+    document.body.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-del]");
+      if (btn) { const [coll, id] = btn.dataset.del.split(":"); deleteRecord(coll, id); return; }
+      if (e.target.id === "exportBtn") exportToExcel();
+    });
+
+    renderAll();
+  }
+
+  function subscribe(collName, onData) {
+    dbRef.collection(collName).onSnapshot(
+      (snap) => onData(snap.docs.map((d) => Object.assign({ id: d.id }, d.data()))),
+      (err) => showError(err.message || String(err))
+    );
+  }
+
+  function showError(msg) {
+    const el = $("#errBanner");
+    el.textContent = msg;
+    el.classList.add("show");
+    setTimeout(() => el.classList.remove("show"), 5000);
+  }
+
+  async function addRecord(collName, data, formEl) {
+    const submitBtn = formEl.querySelector("button[type=submit]");
+    submitBtn.disabled = true;
+    try {
+      await dbRef.collection(collName).add(Object.assign({}, data, {
+        enteredByEmail: (auth.currentUser && auth.currentUser.email) || "",
+        createdAt: new Date().toISOString(),
+      }));
+      formEl.reset();
+      const dateField = formEl.querySelector('input[name="date"]');
+      if (dateField) dateField.value = todayISO();
+      clearWellLookup(formEl);
+    } catch (e) { showError(e.message || String(e)); }
+    finally { submitBtn.disabled = false; }
+  }
+
+  async function deleteRecord(collName, id) {
+    if (!confirm("تأكيد حذف هذا الصف؟")) return;
+    try { await dbRef.collection(collName).doc(id).delete(); } catch (e) { showError(e.message || String(e)); }
+  }
+
+  function applyWellLookup(form, wellId) {
+    const well = state.wells.find((w) => w.id === wellId);
+    form.querySelector(".auto-code").value = well ? well.code : "";
+    form.querySelector(".auto-start").value = well ? well.startDate : "";
+    form.querySelector(".auto-end").value = well ? (well.endDate || "") : "";
+  }
+  function clearWellLookup(form) {
+    const codeEl = form.querySelector(".auto-code");
+    if (codeEl) { codeEl.value = ""; form.querySelector(".auto-start").value = ""; form.querySelector(".auto-end").value = ""; }
+  }
+
+  function renderDropdowns() {
+    const projOptions = ['<option value="" disabled selected>اختر كود المشروع</option>']
+      .concat(state.projects.slice().sort((a, b) => a.code.localeCompare(b.code))
+        .map((p) => `<option value="${escapeHtml(p.code)}">${escapeHtml(p.code)} — ${escapeHtml(p.client)}</option>`));
+    $("#wellProjectSelect").innerHTML = projOptions.join("");
+
+    const wellOptions = ['<option value="" disabled selected>اختر اسم البئر</option>']
+      .concat(state.wells.slice().sort((a, b) => a.wellName.localeCompare(b.wellName))
+        .map((w) => `<option value="${escapeHtml(w.id)}">${escapeHtml(w.wellName)} (${escapeHtml(w.code)})</option>`));
+    $all(".well-select").forEach((sel) => {
+      const prev = sel.value;
+      sel.innerHTML = wellOptions.join("");
+      if (prev && state.wells.some((w) => w.id === prev)) sel.value = prev;
+    });
+  }
+
+  function rowsOrEmpty(tbody, rows, colspan, emptyText) {
+    if (!rows.length) { tbody.innerHTML = `<tr class="empty-row"><td colspan="${colspan}">${emptyText}</td></tr>`; return false; }
+    return true;
+  }
+
+  function renderProjects() {
+    const tbody = $("#tblProjects tbody");
+    const rows = state.projects.slice().sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+    if (!rowsOrEmpty(tbody, rows, 8, "لا توجد مشاريع بعد")) return;
+    tbody.innerHTML = rows.map((p) => `<tr>
+      <td class="mono">${escapeHtml(p.code)}</td><td>${escapeHtml(p.client)}</td><td class="num">${fmtNum(p.wellsCount)}</td>
+      <td class="num">${escapeHtml(p.startDate)}</td><td class="num">${escapeHtml(p.endDate || "—")}</td>
+      <td class="muted">${escapeHtml(p.notes || "—")}</td><td class="who">${escapeHtml(p.enteredByEmail || "")}</td>
+      <td><button class="ghost" data-del="projects:${p.id}">حذف</button></td></tr>`).join("");
+  }
+
+  function renderWells() {
+    const tbody = $("#tblWells tbody");
+    const rows = state.wells.slice().sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+    if (!rowsOrEmpty(tbody, rows, 8, "لا توجد آبار بعد")) return;
+    tbody.innerHTML = rows.map((w) => `<tr>
+      <td class="mono">${escapeHtml(w.code)}</td><td>${escapeHtml(w.wellName)}</td><td class="num">${escapeHtml(w.startDate)}</td>
+      <td class="num">${escapeHtml(w.endDate || "—")}</td><td>${escapeHtml(w.status)}</td>
+      <td class="muted">${escapeHtml(w.notes || "—")}</td><td class="who">${escapeHtml(w.enteredByEmail || "")}</td>
+      <td><button class="ghost" data-del="wells:${w.id}">حذف</button></td></tr>`).join("");
+  }
+
+  function renderDept(collName, tblId, hasExtra) {
+    const tbody = $("#" + tblId + " tbody");
+    const rows = state[collName].slice().sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+    const colspan = hasExtra ? 9 : 7;
+    if (!rowsOrEmpty(tbody, rows, colspan, "لا توجد سجلات بعد")) return;
+    tbody.innerHTML = rows.map((r) => `<tr>
+      <td class="num">${escapeHtml(r.date)}</td><td>${escapeHtml(r.wellName)}</td><td class="mono">${escapeHtml(r.code)}</td>
+      ${hasExtra ? `<td>${escapeHtml(r.itemType)}</td>` : ""}<td class="num">${fmtNum(r.qty)}</td>
+      ${hasExtra ? `<td>${escapeHtml(r.unit)}</td>` : ""}<td class="muted">${escapeHtml(r.notes || "—")}</td>
+      <td class="who">${escapeHtml(r.enteredByEmail || "")}</td><td><button class="ghost" data-del="${collName}:${r.id}">حذف</button></td></tr>`).join("");
+  }
+
+  function sumBy(rows, keyFn, key) { return rows.filter((r) => keyFn(r) === key).reduce((s, r) => s + (Number(r.qty) || 0), 0); }
+
+  function renderKpis() {
+    const grid = $("#kpiGrid");
+    const totalDiesel = state.diesel.reduce((s, r) => s + (Number(r.qty) || 0), 0);
+    const totalCement = state.cement.reduce((s, r) => s + (Number(r.qty) || 0), 0);
+    const totalMud = state.mud.reduce((s, r) => s + (Number(r.qty) || 0), 0);
+    const totalStore = state.store.reduce((s, r) => s + (Number(r.qty) || 0), 0);
+    const kpis = [
+      { l: "عدد المشاريع", v: fmtNum(state.projects.length) }, { l: "عدد الآبار", v: fmtNum(state.wells.length) },
+      { l: "إجمالي السولار (لتر)", v: fmtNum(totalDiesel) }, { l: "إجمالي الأسمنت (طن)", v: fmtNum(totalCement) },
+      { l: "إجمالي الطفلة والكيماويات", v: fmtNum(totalMud) }, { l: "إجمالي المواسير والدقاقات", v: fmtNum(totalStore) },
+    ];
+    grid.innerHTML = kpis.map((k) => `<div class="kpi"><div class="v">${k.v}</div><div class="l">${k.l}</div></div>`).join("");
+  }
+
+  function renderProjectSummary() {
+    const tbody = $("#tblProjSummary tbody");
+    const rows = state.projects.slice().sort((a, b) => a.code.localeCompare(b.code));
+    if (!rowsOrEmpty(tbody, rows, 8, "أضف مشروعًا من تبويب (العمليات) ليظهر هنا")) return;
+    tbody.innerHTML = rows.map((p) => {
+      const wellsExecuted = state.wells.filter((w) => w.code === p.code).length;
+      const d = sumBy(state.diesel, (r) => r.code, p.code), c = sumBy(state.cement, (r) => r.code, p.code);
+      const m = sumBy(state.mud, (r) => r.code, p.code), s = sumBy(state.store, (r) => r.code, p.code);
+      return `<tr><td class="mono">${escapeHtml(p.code)}</td><td>${escapeHtml(p.client)}</td><td class="num">${fmtNum(p.wellsCount)}</td>
+        <td class="num">${fmtNum(wellsExecuted)}</td><td class="num">${fmtNum(d)}</td><td class="num">${fmtNum(c)}</td>
+        <td class="num">${fmtNum(m)}</td><td class="num">${fmtNum(s)}</td></tr>`;
+    }).join("");
+  }
+
+  function renderWellSummary() {
+    const tbody = $("#tblWellSummary tbody");
+    const rows = state.wells.slice().sort((a, b) => a.wellName.localeCompare(b.wellName));
+    if (!rowsOrEmpty(tbody, rows, 9, "أضف بئرًا من تبويب (العمليات) ليظهر هنا")) return;
+    tbody.innerHTML = rows.map((w) => {
+      const d = sumBy(state.diesel, (r) => r.wellId, w.id), c = sumBy(state.cement, (r) => r.wellId, w.id);
+      const m = sumBy(state.mud, (r) => r.wellId, w.id), s = sumBy(state.store, (r) => r.wellId, w.id);
+      return `<tr><td>${escapeHtml(w.wellName)}</td><td class="mono">${escapeHtml(w.code)}</td><td class="num">${escapeHtml(w.startDate)}</td>
+        <td class="num">${escapeHtml(w.endDate || "—")}</td><td>${escapeHtml(w.status)}</td><td class="num">${fmtNum(d)}</td>
+        <td class="num">${fmtNum(c)}</td><td class="num">${fmtNum(m)}</td><td class="num">${fmtNum(s)}</td></tr>`;
+    }).join("");
+  }
+
+  let renderScheduled = false;
+  function renderAll() {
+    if (renderScheduled) return;
+    renderScheduled = true;
+    requestAnimationFrame(() => {
+      renderScheduled = false;
+      renderDropdowns(); renderKpis(); renderProjectSummary(); renderWellSummary();
+      renderProjects(); renderWells();
+      renderDept("diesel", "tblDiesel", false); renderDept("cement", "tblCement", false);
+      renderDept("mud", "tblMud", true); renderDept("store", "tblStore", true);
+    });
+  }
+
+  // ---------------- export to Excel ----------------
+  function exportToExcel() {
+    const wb = XLSX.utils.book_new();
+
+    const projSummary = state.projects.slice().sort((a, b) => a.code.localeCompare(b.code)).map((p) => ({
+      "كود المشروع": p.code, "اسم العميل": p.client, "عدد الآبار المطلوبة": p.wellsCount,
+      "عدد الآبار المسجلة": state.wells.filter((w) => w.code === p.code).length,
+      "إجمالي السولار (لتر)": sumBy(state.diesel, (r) => r.code, p.code),
+      "إجمالي الأسمنت (طن)": sumBy(state.cement, (r) => r.code, p.code),
+      "إجمالي الطفلة والكيماويات": sumBy(state.mud, (r) => r.code, p.code),
+      "إجمالي المواسير والدقاقات": sumBy(state.store, (r) => r.code, p.code),
+    }));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(projSummary), "ملخص العمليات");
+
+    const wellSummary = state.wells.slice().sort((a, b) => a.wellName.localeCompare(b.wellName)).map((w) => ({
+      "اسم البئر": w.wellName, "كود المشروع": w.code, "بداية الحفر": w.startDate, "نهاية الحفر": w.endDate || "",
+      "الحالة": w.status, "إجمالي السولار (لتر)": sumBy(state.diesel, (r) => r.wellId, w.id),
+      "إجمالي الأسمنت (طن)": sumBy(state.cement, (r) => r.wellId, w.id),
+      "إجمالي الطفلة والكيماويات": sumBy(state.mud, (r) => r.wellId, w.id),
+      "إجمالي المواسير والدقاقات": sumBy(state.store, (r) => r.wellId, w.id),
+    }));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(wellSummary), "ملخص الآبار");
+
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(state.projects.map((p) => ({
+      "كود المشروع": p.code, "اسم العميل": p.client, "عدد الآبار المطلوبة": p.wellsCount,
+      "تاريخ بداية المشروع": p.startDate, "تاريخ نهاية المشروع": p.endDate || "", "ملاحظات": p.notes || "", "أُدخل بواسطة": p.enteredByEmail || "",
+    }))), "بيانات المشاريع");
+
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(state.wells.map((w) => ({
+      "كود المشروع": w.code, "اسم البئر": w.wellName, "تاريخ بداية الحفر": w.startDate, "تاريخ نهاية الحفر": w.endDate || "",
+      "الحالة": w.status, "ملاحظات": w.notes || "", "أُدخل بواسطة": w.enteredByEmail || "",
+    }))), "الآبار");
+
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(state.diesel.map((r) => ({
+      "التاريخ": r.date, "اسم البئر": r.wellName, "كود المشروع": r.code, "الكمية (لتر)": r.qty, "ملاحظات": r.notes || "", "أُدخل بواسطة": r.enteredByEmail || "",
+    }))), "السولار");
+
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(state.cement.map((r) => ({
+      "التاريخ": r.date, "اسم البئر": r.wellName, "كود المشروع": r.code, "الكمية (طن)": r.qty, "ملاحظات": r.notes || "", "أُدخل بواسطة": r.enteredByEmail || "",
+    }))), "الأسمنت");
+
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(state.mud.map((r) => ({
+      "التاريخ": r.date, "اسم البئر": r.wellName, "كود المشروع": r.code, "نوع الصنف": r.itemType, "الكمية": r.qty, "الوحدة": r.unit, "ملاحظات": r.notes || "", "أُدخل بواسطة": r.enteredByEmail || "",
+    }))), "الطفلة والكيماويات");
+
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(state.store.map((r) => ({
+      "التاريخ": r.date, "اسم البئر": r.wellName, "كود المشروع": r.code, "نوع الصنف": r.itemType, "الكمية": r.qty, "الوحدة": r.unit, "ملاحظات": r.notes || "", "أُدخل بواسطة": r.enteredByEmail || "",
+    }))), "المواسير والدقاقات");
+
+    const stamp = new Date().toISOString().slice(0, 16).replace("T", "_").replace(":", "-");
+    XLSX.writeFile(wb, `استهلاكات_مشاريع_الحفر_${stamp}.xlsx`);
+  }
+})();
+</script>
+</body>
+</html>
